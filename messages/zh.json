@@ -1,0 +1,12 @@
+{
+  "common": {
+    "appName": "CallanApp",
+    "tagline": "新项目 · 空白脚手架"
+  },
+  "home": {
+    "headline": "CallanApp",
+    "subtext": "Next.js + Supabase + next-intl，从 TalkFlow 栈复制的空白起点。",
+    "health": "健康检查",
+    "protected": "受保护区（占位）"
+  }
+}
