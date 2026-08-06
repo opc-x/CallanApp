@@ -4,44 +4,73 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 220 20% 10%;
+    /* 暖白纸感底色，长时间盯着不刺眼 */
+    --background: 40 33% 98%;
+    --foreground: 232 28% 12%;
+
     --card: 0 0% 100%;
-    --card-foreground: 220 20% 10%;
-    --primary: 221 83% 53%;
+    --card-foreground: 232 28% 12%;
+
+    --primary: 250 68% 58%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 20% 96%;
-    --secondary-foreground: 220 20% 20%;
-    --muted: 210 20% 96%;
-    --muted-foreground: 220 10% 45%;
-    --accent: 210 20% 96%;
-    --accent-foreground: 220 20% 20%;
-    --destructive: 0 84% 60%;
+
+    --secondary: 240 20% 95%;
+    --secondary-foreground: 232 20% 25%;
+
+    --muted: 240 18% 95%;
+    --muted-foreground: 232 10% 46%;
+
+    /* accent 是 shadcn 的中性 hover 底，不要拿它当品牌色 */
+    --accent: 240 20% 94%;
+    --accent-foreground: 232 22% 22%;
+
+    /* 连续天数、进度这类需要“热度”的地方 */
+    --flame: 24 92% 53%;
+    --flame-foreground: 0 0% 100%;
+
+    --success: 152 55% 38%;
+    --success-foreground: 0 0% 100%;
+
+    --destructive: 0 78% 56%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 221 83% 53%;
-    --radius: 0.75rem;
+
+    --border: 240 14% 90%;
+    --input: 240 14% 88%;
+    --ring: 250 68% 58%;
+    --radius: 1rem;
   }
 
   .dark {
-    --background: 222 47% 6%;
-    --foreground: 210 20% 98%;
-    --card: 222 47% 9%;
-    --card-foreground: 210 20% 98%;
-    --primary: 221 70% 55%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 222 30% 14%;
-    --secondary-foreground: 210 20% 90%;
-    --muted: 222 30% 14%;
-    --muted-foreground: 220 10% 55%;
-    --accent: 222 30% 14%;
-    --accent-foreground: 210 20% 90%;
-    --destructive: 0 70% 50%;
+    --background: 234 26% 7%;
+    --foreground: 240 22% 96%;
+
+    --card: 234 22% 11%;
+    --card-foreground: 240 22% 96%;
+
+    --primary: 252 88% 72%;
+    --primary-foreground: 234 40% 10%;
+
+    --secondary: 234 18% 17%;
+    --secondary-foreground: 240 18% 90%;
+
+    --muted: 234 18% 16%;
+    --muted-foreground: 236 12% 62%;
+
+    --accent: 234 18% 18%;
+    --accent-foreground: 240 18% 92%;
+
+    --flame: 28 94% 60%;
+    --flame-foreground: 234 40% 10%;
+
+    --success: 152 52% 50%;
+    --success-foreground: 234 40% 10%;
+
+    --destructive: 0 70% 58%;
     --destructive-foreground: 0 0% 100%;
-    --border: 222 30% 18%;
-    --input: 222 30% 18%;
-    --ring: 221 70% 55%;
+
+    --border: 234 16% 20%;
+    --input: 234 16% 24%;
+    --ring: 252 88% 72%;
   }
 }
 
@@ -51,5 +80,46 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+    /* 移动端手势不要触发页面回弹/缩放 */
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* iOS 安全区，底部 Tab 不被 home indicator 压住 */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .h-safe-tab {
+    height: calc(4rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@layer utilities {
+  /* 刷课卡片切换：轻微上浮，不用整套动画库 */
+  @keyframes card-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .animate-card-in {
+    animation: card-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  @keyframes reveal-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .animate-reveal-in {
+    animation: reveal-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 }

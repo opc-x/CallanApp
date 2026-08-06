@@ -1,11 +1,12 @@
 {
   "common": {
     "appName": "CallanApp",
-    "tagline": "新项目 · 空白脚手架"
+    "tagline": "Callan Method · 按课时刷"
   },
   "home": {
     "headline": "CallanApp",
-    "subtext": "Next.js + Supabase + next-intl，从 TalkFlow 栈复制的空白起点。",
+    "subtext": "12 个 Stage、191 节课的词组与例句，一节一节刷过去。",
+    "study": "开始刷课",
     "health": "健康检查",
     "protected": "受保护区（占位）"
   }
