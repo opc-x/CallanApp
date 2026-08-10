@@ -141,21 +141,37 @@ export function PronounceSearch() {
       )}
 
       {active && (
-        <div className="mt-6 overflow-hidden rounded-2xl border border-border bg-black">
-          {/*
-            纯 iframe embed，不用 YouTube JS Player API。
-            之前那套靠 onError 自动跳过"禁止嵌入"视频的机制在移动端不稳定——
-            播放器状态上报本身就不可靠，会连环误判成全部不能播。真被禁嵌入的
-            视频，YouTube 自己会在 iframe 里显示官方的"去 YouTube 看"提示，
-            不用我们自己判断。
-          */}
-          <iframe
-            key={`${active.videoId}-${active.start}`}
-            className="aspect-video w-full"
-            src={`https://www.youtube.com/embed/${active.videoId}?${precise ? `start=${active.start}&` : ""}autoplay=1&playsinline=1`}
-            allow="autoplay; encrypted-media; picture-in-picture"
-            allowFullScreen
-          />
+        <div className="mt-6 space-y-2">
+          <div className="overflow-hidden rounded-2xl border border-border bg-black">
+            {/*
+              纯 iframe embed，不用 YouTube JS Player API。
+              之前那套靠 onError 自动跳过"禁止嵌入"视频的机制在移动端不稳定——
+              播放器状态上报本身就不可靠，会连环误判成全部不能播。真被禁嵌入
+              （或年龄限制/反爬拦截）的视频，YouTube 自己会在 iframe 里显示官方
+              提示——那是跨域内容，我们的 JS 读不到，没法自动感知/跳过。
+            */}
+            <iframe
+              key={`${active.videoId}-${active.start}`}
+              className="aspect-video w-full"
+              src={`https://www.youtube.com/embed/${active.videoId}?${precise ? `start=${active.start}&` : ""}autoplay=1&playsinline=1`}
+              allow="autoplay; encrypted-media; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+          {hits.length > 1 && (
+            <button
+              type="button"
+              onClick={() => {
+                const i = hits.findIndex(
+                  (h) => h.videoId === active.videoId && h.start === active.start,
+                );
+                setActive(hits[(i + 1) % hits.length]);
+              }}
+              className="w-full rounded-lg border border-border py-2 text-xs font-medium text-muted-foreground active:bg-muted"
+            >
+              放不出来？换一个
+            </button>
+          )}
         </div>
       )}
 
