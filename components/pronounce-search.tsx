@@ -1,56 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ExternalLink, Languages, Loader2, Search, Volume2 } from "lucide-react";
+import { useState } from "react";
+import { Languages, Loader2, Search, Volume2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PronounceHit } from "@/lib/youglish";
 
 type Status = "idle" | "loading" | "error" | "done";
-
-// 100 = 视频被删/私有，101/150 = 上传者禁止嵌入播放——这三种都得自动换下一条，
-// 别的错误码（2/5，参数或播放器本身的问题）先原样展示，重试没用。
-const UNPLAYABLE_ERROR_CODES = new Set([100, 101, 150]);
-// 连续几个都报错、一个都没真正播成功，大概率不是"每个视频都被禁嵌入"这么巧，
-// 是这个浏览器/环境（比如某些 App 内置浏览器）压根放不了 YouTube 内嵌播放器。
-const CIRCUIT_BREAKER_THRESHOLD = 3;
-
-type YTPlayer = { destroy: () => void };
-type YTPlayerCtor = new (
-  el: HTMLElement,
-  opts: {
-    videoId: string;
-    playerVars?: Record<string, unknown>;
-    events?: {
-      onReady?: () => void;
-      onError?: (e: { data: number }) => void;
-    };
-  },
-) => YTPlayer;
-
-declare global {
-  interface Window {
-    YT?: { Player: YTPlayerCtor };
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
-
-let ytApiPromise: Promise<void> | null = null;
-function loadYouTubeApi(): Promise<void> {
-  if (window.YT?.Player) return Promise.resolve();
-  ytApiPromise ??= new Promise((resolve) => {
-    const prev = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => {
-      prev?.();
-      resolve();
-    };
-    if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
-      const tag = document.createElement("script");
-      tag.src = "https://www.youtube.com/iframe_api";
-      document.head.appendChild(tag);
-    }
-  });
-  return ytApiPromise;
-}
 
 function highlight(text: string, word: string, onWordClick: () => void) {
   const re = new RegExp(`\\b(${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})\\b`, "ig");
@@ -83,58 +38,6 @@ export function PronounceSearch() {
   const [active, setActive] = useState<PronounceHit | null>(null);
   const [translations, setTranslations] = useState<Record<number, string>>({});
   const [translating, setTranslating] = useState<number | null>(null);
-  const [blocked, setBlocked] = useState<Set<string>>(new Set());
-  const [embedUnsupported, setEmbedUnsupported] = useState(false);
-  const playerHostRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<YTPlayer | null>(null);
-  const consecutiveErrors = useRef(0);
-
-  function hitKey(hit: PronounceHit) {
-    return `${hit.videoId}-${hit.start}`;
-  }
-
-  // 当前视频被 YouTube 判定禁止嵌入时，标灰并自动切到列表里下一条没试过的候选
-  function skipUnplayable(hit: PronounceHit, list: PronounceHit[]) {
-    setBlocked((prev) => {
-      const nextBlocked = new Set(prev).add(hitKey(hit));
-      const i = list.findIndex((h) => hitKey(h) === hitKey(hit));
-      const next = list.slice(i + 1).find((h) => !nextBlocked.has(hitKey(h)));
-      setActive(next ?? null);
-      return nextBlocked;
-    });
-  }
-
-  useEffect(() => {
-    if (!active || !playerHostRef.current || embedUnsupported) return;
-    let cancelled = false;
-    loadYouTubeApi().then(() => {
-      if (cancelled || !playerHostRef.current) return;
-      playerRef.current?.destroy();
-      playerRef.current = new window.YT!.Player(playerHostRef.current, {
-        videoId: active.videoId,
-        playerVars: { autoplay: 1, start: precise ? active.start : 0 },
-        events: {
-          onReady: () => {
-            consecutiveErrors.current = 0; // 真播成功了，说明这个环境能放，之前的错误不算系统性问题
-          },
-          onError: (e) => {
-            if (!UNPLAYABLE_ERROR_CODES.has(e.data)) return;
-            consecutiveErrors.current += 1;
-            if (consecutiveErrors.current >= CIRCUIT_BREAKER_THRESHOLD) {
-              setEmbedUnsupported(true);
-              setActive(null);
-              return;
-            }
-            skipUnplayable(active, hits);
-          },
-        },
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active?.videoId, active?.start, embedUnsupported]);
 
   async function search(q: string) {
     const clean = q.trim();
@@ -143,9 +46,6 @@ export function PronounceSearch() {
     setWord(clean);
     setActive(null);
     setTranslations({});
-    setBlocked(new Set());
-    setEmbedUnsupported(false);
-    consecutiveErrors.current = 0;
     try {
       const res = await fetch(`/api/v1/pronounce?word=${encodeURIComponent(clean)}`);
       const data = await res.json();
@@ -240,34 +140,41 @@ export function PronounceSearch() {
         </div>
       )}
 
-      {embedUnsupported && (
-        <div className="mt-6 rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground">
-          这个浏览器/环境放不了 YouTube 内嵌播放器（常见于 App 内置浏览器），下面的视频点开会直接跳
-          YouTube 播放。
-        </div>
-      )}
-
-      {active && !embedUnsupported && (
-        <div className="mt-6 aspect-video overflow-hidden rounded-2xl border border-border bg-black">
-          <div ref={playerHostRef} className="size-full" />
+      {active && (
+        <div className="mt-6 overflow-hidden rounded-2xl border border-border bg-black">
+          {/*
+            纯 iframe embed，不用 YouTube JS Player API。
+            之前那套靠 onError 自动跳过"禁止嵌入"视频的机制在移动端不稳定——
+            播放器状态上报本身就不可靠，会连环误判成全部不能播。真被禁嵌入的
+            视频，YouTube 自己会在 iframe 里显示官方的"去 YouTube 看"提示，
+            不用我们自己判断。
+          */}
+          <iframe
+            key={`${active.videoId}-${active.start}`}
+            className="aspect-video w-full"
+            src={`https://www.youtube.com/embed/${active.videoId}?${precise ? `start=${active.start}&` : ""}autoplay=1&playsinline=1`}
+            allow="autoplay; encrypted-media; picture-in-picture"
+            allowFullScreen
+          />
         </div>
       )}
 
       {hits.length > 0 && (
         <ul className="mt-4 space-y-2 pb-8">
-          {hits.map((hit, i) => {
-            const isBlocked = embedUnsupported || blocked.has(hitKey(hit));
-            const body = (
-              <>
+          {hits.map((hit, i) => (
+            <li key={`${hit.videoId}-${hit.start}-${i}`}>
+              <button
+                onClick={() => setActive(hit)}
+                className={cn(
+                  "w-full rounded-xl border px-4 py-3 text-left transition-colors",
+                  active?.videoId === hit.videoId && active?.start === hit.start
+                    ? "border-primary bg-primary/5"
+                    : "border-border bg-card hover:border-primary/40",
+                )}
+              >
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Volume2 className="size-3.5" />
                   <span className="truncate">{hit.channel || hit.title}</span>
-                  {isBlocked && (
-                    <span className="flex shrink-0 items-center gap-1">
-                      · {embedUnsupported ? "去 YouTube 看" : "无法嵌入，去 YouTube 看"}{" "}
-                      <ExternalLink className="size-3" />
-                    </span>
-                  )}
                 </div>
                 <p className="mt-1 text-[15px] leading-snug">
                   {highlight(hit.text, word, () => translateHit(i, hit.text))}
@@ -284,35 +191,9 @@ export function PronounceSearch() {
                     {translations[i]}
                   </p>
                 )}
-              </>
-            );
-            const className = cn(
-              "block w-full rounded-xl border px-4 py-3 text-left transition-colors",
-              isBlocked
-                ? "border-border bg-muted text-muted-foreground hover:border-primary/40"
-                : active?.videoId === hit.videoId && active?.start === hit.start
-                  ? "border-primary bg-primary/5"
-                  : "border-border bg-card hover:border-primary/40",
-            );
-            return (
-              <li key={`${hit.videoId}-${hit.start}-${i}`}>
-                {isBlocked ? (
-                  <a
-                    href={`https://www.youtube.com/watch?v=${hit.videoId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={className}
-                  >
-                    {body}
-                  </a>
-                ) : (
-                  <button onClick={() => setActive(hit)} className={className}>
-                    {body}
-                  </button>
-                )}
-              </li>
-            );
-          })}
+              </button>
+            </li>
+          ))}
         </ul>
       )}
     </main>
