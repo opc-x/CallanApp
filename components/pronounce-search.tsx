@@ -158,20 +158,36 @@ export function PronounceSearch() {
               allowFullScreen
             />
           </div>
-          {hits.length > 1 && (
-            <button
-              type="button"
-              onClick={() => {
-                const i = hits.findIndex(
-                  (h) => h.videoId === active.videoId && h.start === active.start,
-                );
-                setActive(hits[(i + 1) % hits.length]);
-              }}
-              className="w-full rounded-lg border border-border py-2 text-xs font-medium text-muted-foreground active:bg-muted"
+          <div className="flex gap-2">
+            {/*
+              手机浏览器里内嵌 iframe 常年放不出来登录/年龄限制的视频——Google
+              明确禁止在 WebView/iframe 里完成账号登录（防钓鱼策略），点了里面
+              的 Sign in 没反应是设计如此，不是没加载出来。真要看只能跳到
+              YouTube 本体（顶层页面，不是内嵌），那边登录/反爬才走得通。
+            */}
+            <a
+              href={`https://www.youtube.com/watch?v=${active.videoId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 rounded-lg border border-border py-2 text-center text-xs font-medium text-muted-foreground active:bg-muted"
             >
-              放不出来？换一个
-            </button>
-          )}
+              在 YouTube 打开
+            </a>
+            {hits.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const i = hits.findIndex(
+                    (h) => h.videoId === active.videoId && h.start === active.start,
+                  );
+                  setActive(hits[(i + 1) % hits.length]);
+                }}
+                className="flex-1 rounded-lg border border-border py-2 text-xs font-medium text-muted-foreground active:bg-muted"
+              >
+                换一个
+              </button>
+            )}
+          </div>
         </div>
       )}
 
