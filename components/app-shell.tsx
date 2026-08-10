@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, BookOpen, Home, Star } from "lucide-react";
+import { BarChart3, BookOpen, Home, Star, Volume2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
   { href: "", label: "今天", icon: Home },
   { href: "/study", label: "课程", icon: BookOpen },
   { href: "/saved", label: "生词", icon: Star },
+  { href: "/pronounce", label: "发音", icon: Volume2 },
   { href: "/stats", label: "数据", icon: BarChart3 },
 ];
 

@@ -12,6 +12,7 @@ import stage11 from "@/data/callan/stage-11.json";
 import stage12 from "@/data/callan/stage-12.json";
 import indexData from "@/data/callan/index.json";
 import ipaData from "@/data/callan/ipa.json";
+import glossData from "@/data/callan/gloss.json";
 
 export type Example = { q: string; a: string };
 
@@ -67,6 +68,55 @@ export function lessonIpa(lesson: Lesson): Record<string, string> {
     }
   }
   return picked;
+}
+
+export type LongSentence = {
+  q: string;
+  backbone: string;
+  gloss: string;
+  chunks: string[];
+  /** 构造公式：把这句话的语法抽象成可复用的规则，帮学生自己造句 */
+  rule: string;
+  /** 套用同一公式写的另一句英文 + 中文释义，证明规则能泛化 */
+  example: string;
+};
+
+/**
+ * 词条 → 中文释义、课时 → AI 生成的语法小结/长句拆读，均由离线批处理生成，
+ * 存于 data/callan/gloss.json，覆盖不到的词/课就留空。
+ */
+const GLOSS = glossData as {
+  words: Record<string, string>;
+  grammar: Record<string, string[]>;
+  longSentence?: Record<string, LongSentence[]>;
+};
+
+/** 任意单词查释义，覆盖不到就返回 null（gloss.json 只收了课本里出现过的词） */
+export function wordGloss(word: string): string | null {
+  const clean = word.trim();
+  return GLOSS.words[clean] ?? GLOSS.words[clean.toLowerCase()] ?? null;
+}
+
+/** 只挑出这一课用到的词义，客户端就不必收下整张表 */
+export function lessonGloss(lesson: Lesson): Record<string, string> {
+  const picked: Record<string, string> = {};
+  for (const g of lesson.groups) {
+    for (const w of g.words) {
+      const meaning = GLOSS.words[w];
+      if (meaning) picked[w] = meaning;
+    }
+  }
+  return picked;
+}
+
+/** 课末小结用：这一课的 AI 生成语法讲解要点，覆盖不到时返回空数组 */
+export function lessonGrammar(lesson: Lesson): string[] {
+  return GLOSS.grammar[String(lesson.lesson)] ?? [];
+}
+
+/** 课末小结用：这一课挑出的长难句拆读（骨架 + 分句朗读块），每课最多 3 句，覆盖不到时返回空数组 */
+export function lessonLongSentences(lesson: Lesson): LongSentence[] {
+  return GLOSS.longSentence?.[String(lesson.lesson)] ?? [];
 }
 
 export const TOTAL_LESSONS = lessonIndex.length;

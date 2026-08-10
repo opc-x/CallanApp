@@ -25,6 +25,7 @@ WORDS = "words"       # 词 / 词组
 QUESTION = "question"
 ANSWER = "answer"
 NOTE = "note"
+SECTION = "section"     # Dictation 等斜体小节标题，仅用于控制跳过区块
 
 # 同一物理行内问句与答句基线略有差异，按此容差聚行
 LINE_TOLERANCE = 4.0
@@ -47,6 +48,8 @@ def classify(fontname: str, size: float) -> str | None:
         return QUESTION
     if base.startswith("FreeSet-Light") and size >= 10.0:
         return ANSWER
+    if base.startswith("FreeSet-LightOblique") and size >= 9.5:
+        return SECTION
     if "DemiBold" in base and size >= 10.0:
         return NOTE
     return None  # 页码、小节号等一律丢弃
@@ -160,6 +163,7 @@ SKIP_SECTION = re.compile(
         | word-building \s+ exercise
         | word \s+ pool \b .* revision \s+ exercise
         | (demonstration|pronunciation) \s+ charts?
+        | dictation \s* \d+
     )"""
 )
 
@@ -213,12 +217,17 @@ class LessonBuilder:
             if self._buf and not self._buf[-1].endswith(" "):
                 self._buf.append(" ")
             return
+        # Dictation/revision headings are not consistently set in the large
+        # WORDS font; some stages use the NOTE font.  Detect them before the
+        # kind-specific branches, otherwise their answer-font body is appended
+        # to the final lesson answer until the next LESSON heading.
+        if SKIP_SECTION.match(normalise(text)):
+            self._flush()
+            self.skipping = True
+            return
         if kind == WORDS:
             # 相邻的词组 run 各自独立成词条
             self._flush()
-            if SKIP_SECTION.match(normalise(text)):
-                self.skipping = True
-                return
             self.skipping = False
             self._kind = WORDS
             self._buf = [text]
@@ -243,6 +252,43 @@ class LessonBuilder:
                 if e["a"] and re.search(r"[A-Za-z]", e["q"])
             ]
             if words or examples:
+                # 行内释义如 get (receive) a month? 会因字体切成
+                # question/answer/question 三段；把它还原成一条完整问句。
+                repaired = []
+                i = 0
+                while i < len(examples):
+                    current = examples[i]
+                    if (
+                        i + 1 < len(examples)
+                        and re.fullmatch(r"\([^)]{1,40}\)", current["a"])
+                    ):
+                        following = examples[i + 1]
+                        repaired.append(
+                            {
+                                "q": f'{current["q"]} {current["a"]} {following["q"]}',
+                                "a": following["a"],
+                            }
+                        )
+                        i += 2
+                    else:
+                        repaired.append(current)
+                        i += 1
+                examples = repaired
+
+                # 不规则动词表与紧随其后的问句有时使用同一字体，PDF 会把
+                # 两者粘在一起。表格保留进课本说明，问句恢复为独立文本。
+                for example in examples:
+                    if example["q"].count("–") < 5 or "?" not in example["q"]:
+                        continue
+                    match = re.search(
+                        r"\s(?=(?:What|Which|Who|Where|When|Why|How|Have|Has|Had|Do|Does|Did|Can|Could|Will|Would|Should|Is|Are|Was|Were)\b)",
+                        example["q"],
+                    )
+                    if match:
+                        table = example["q"][: match.start()].strip()
+                        example["q"] = example["q"][match.end() :].strip()
+                        g["note"] = (g["note"] + " " + table).strip()
+
                 groups.append(
                     {"words": words, "note": g["note"], "examples": examples}
                 )
@@ -258,6 +304,21 @@ class LessonBuilder:
             merged.append(g)
         if pending:
             merged.append({"words": pending, "note": "", "examples": []})
+        # 三处原书跨字体/跨行导致的确定性断句，按 PDF 原文修复；不改写教材措辞。
+        exact_repairs = {
+            (16, "hand side?"): "Are you sitting on my left-hand side or on my right-hand side?",
+            (189, "great”, why can we not reduce the relative clause by omitting the verb “be”?"): (
+                "In the sentence “The picture that John is painting looks great”, "
+                "why can we not reduce the relative clause by omitting the verb “be”?"
+            ),
+        }
+        for group in merged:
+            for example in group["examples"]:
+                replacement = exact_repairs.get((self.id, example["q"]))
+                if replacement:
+                    example["q"] = replacement
+                if self.id == 59 and example["q"] == "Which is the greatest city in your country?":
+                    example["a"] = "... is the greatest city in my country"
         return {"lesson": self.id, "stage": self.stage, "groups": merged}
 
 

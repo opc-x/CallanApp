@@ -1,6 +1,14 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { getLesson, lessonIndex, lessonIpa, TOTAL_LESSONS } from "@/lib/callan";
+import {
+  getLesson,
+  lessonGloss,
+  lessonGrammar,
+  lessonIndex,
+  lessonIpa,
+  lessonLongSentences,
+  TOTAL_LESSONS,
+} from "@/lib/callan";
 import { LessonDrill } from "@/components/lesson-drill";
 
 export function generateStaticParams() {
@@ -32,6 +40,9 @@ export default async function LessonPage({
     <LessonDrill
       lesson={lesson}
       ipa={lessonIpa(lesson)}
+      gloss={lessonGloss(lesson)}
+      grammar={lessonGrammar(lesson)}
+      longSentences={lessonLongSentences(lesson)}
       locale={locale}
       next={num < TOTAL_LESSONS ? num + 1 : null}
     />

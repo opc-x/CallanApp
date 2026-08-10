@@ -6,19 +6,27 @@ import {
   ArrowRight,
   BookOpen,
   Check,
+  ChevronDown,
   Gauge,
+  GraduationCap,
   Info,
+  Languages,
   List,
   MessagesSquare,
   RotateCcw,
+  Sparkles,
   Star,
   Volume2,
   X,
 } from "lucide-react";
-import type { Lesson } from "@/lib/callan";
+import type { Lesson, LongSentence } from "@/lib/callan";
+import { analyzePattern } from "@/lib/grammar";
+import meaningsData from "@/data/callan/meanings.json";
 import { useProgress, type Saved } from "@/lib/progress";
 import { useSpeech } from "@/lib/speech";
 import { cn } from "@/lib/utils";
+
+type Speech = ReturnType<typeof useSpeech>;
 
 type Card =
   | { kind: "words"; words: string[]; note: string }
@@ -61,23 +69,47 @@ function Chips({ words }: { words: string[] }) {
   );
 }
 
-/** 通览与新词卡共用：词条 + 音标（词典没收录的词就只显示词） */
+/**
+ * 通览与新词卡共用：词条 + 音标或释义（词典/词表没收录的就只显示词），
+ * 点击朗读；能朗读时右上角带一个小喇叭图标，别让人以为整块卡片只是展示。
+ */
 function WordChip({
   word,
   ipa,
+  meaning,
   size = "sm",
+  onSpeak,
 }: {
   word: string;
   ipa?: string;
+  /** 中文释义，优先于音标展示 */
+  meaning?: string;
   size?: "sm" | "lg";
+  onSpeak?: (word: string) => void;
 }) {
   return (
-    <span
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onSpeak?.(word);
+      }}
+      disabled={!onSpeak}
       className={cn(
-        "inline-flex flex-col items-center rounded-md bg-primary/10",
+        "relative inline-flex flex-col items-center rounded-md bg-primary/10 transition-colors",
+        onSpeak && "active:bg-primary/20",
         size === "lg" ? "px-4 py-2" : "px-2.5 py-1.5",
+        onSpeak && (size === "lg" ? "pr-7" : "pr-5"),
       )}
     >
+      {onSpeak && (
+        <Volume2
+          className={cn(
+            "absolute right-1 top-1 text-primary/45",
+            size === "lg" ? "size-3.5" : "size-2.5",
+          )}
+        />
+      )}
       <span
         className={cn(
           "font-serif font-semibold text-primary",
@@ -86,18 +118,104 @@ function WordChip({
       >
         {word}
       </span>
-      {ipa && (
-        // 不用 font-mono：等宽字体缺 IPA 字形，ˈ 会掉成 '、ː 会掉成 :
+      {meaning ? (
         <span
           className={cn(
-            "mt-0.5 leading-tight text-primary/70",
+            "mt-0.5 leading-tight text-muted-foreground",
             size === "lg" ? "text-xs" : "text-[10px]",
           )}
         >
-          /{ipa}/
+          {meaning}
         </span>
+      ) : (
+        ipa && (
+          // 不用 font-mono：等宽字体缺 IPA 字形，ˈ 会掉成 '、ː 会掉成 :
+          <span
+            className={cn(
+              "mt-0.5 leading-tight text-primary/70",
+              size === "lg" ? "text-xs" : "text-[10px]",
+            )}
+          >
+            /{ipa}/
+          </span>
+        )
       )}
-    </span>
+    </button>
+  );
+}
+
+/** 通览页问答句的折叠语法标签：规则匹配句型/时态，无标签时不渲染 */
+type StoredMeaning = { q: string; a: string };
+const LESSON_MEANINGS = meaningsData as Record<string, StoredMeaning>;
+
+/** 教材原文保持不动；中文句意来自离线生成的数据，不产生运行费用。 */
+function SentenceTools({ q, a, meaning }: { q: string; a: string; meaning?: StoredMeaning }) {
+  const [open, setOpen] = useState(false);
+  const [meaningOpen, setMeaningOpen] = useState(false);
+  const tags = useMemo(() => analyzePattern(q, a), [q, a]);
+  const hasTextbookBlank = /(?:\.{3}|…)/.test(`${q} ${a}`);
+
+  const toggleMeaning = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setMeaningOpen((value) => !value);
+  };
+
+  return (
+    <div className="mt-2 border-t border-border/70 pt-2">
+      <div className="flex items-center gap-4">
+        {tags && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((v) => !v);
+            }}
+            className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground active:text-foreground"
+          >
+            <GraduationCap className="size-3.5" />
+            语法要点
+            <ChevronDown className={cn("size-3 transition-transform", open && "rotate-180")} />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={toggleMeaning}
+          className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground active:text-foreground"
+        >
+          <Languages className="size-3.5" />
+          句意
+          <ChevronDown className={cn("size-3 transition-transform", meaningOpen && "rotate-180")} />
+        </button>
+        {hasTextbookBlank && (
+          <span className="text-[10px] text-muted-foreground/70" title="教材原文故意留空，需按本人情况补全">
+          </span>
+        )}
+      </div>
+      {open && tags && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {tags.map((tag) => (
+            <span
+              key={tag}
+              className="rounded-md bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-foreground"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+      {meaningOpen && (
+        <div className="mt-2 rounded-md bg-muted/60 p-2.5 text-[12px] leading-relaxed text-muted-foreground">
+          {meaning ? (
+            <div className="space-y-1.5">
+              <p><span className="font-medium text-foreground">问：</span>{meaning.q}</p>
+              <p><span className="font-medium text-primary">答：</span>{meaning.a}</p>
+            </div>
+          ) : (
+            "本句句意正在校订中。"
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -117,15 +235,255 @@ function BlockLabel({
   );
 }
 
+/**
+ * 长句拆读：滚雪球跟读——从第一个分句开始，每按一次「接下一句」就把下一块拼进
+ * 已读的句子里重读一遍，练到最后一步就是完整长句，练的是「组合说出来」而不只是听。
+ */
+function LongSentenceDrill({ data, speech }: { data: LongSentence; speech: Speech }) {
+  const [step, setStep] = useState(0);
+  useEffect(() => setStep(0), [data.q]);
+
+  const chunks = data.chunks;
+  const done = step >= chunks.length - 1;
+  const built = chunks.slice(0, step).join(" ");
+  const current = chunks[step];
+
+  return (
+    <div>
+      <div className="rounded-md border border-border bg-card p-3.5">
+        <p className="text-[12.5px] font-semibold text-primary">{data.backbone}</p>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+          {data.gloss}
+        </p>
+
+        <div className="mt-3 rounded-md bg-primary/[0.06] p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-primary">
+            怎么搭出来
+          </p>
+          <p className="mt-1.5 text-[12.5px] leading-relaxed text-foreground">
+            {data.rule}
+          </p>
+          <p className="mt-2 border-t border-primary/10 pt-2 font-serif text-[12.5px] leading-relaxed text-muted-foreground">
+            {data.example}
+          </p>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between">
+          <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
+            滚雪球跟读 · {step + 1}/{chunks.length}
+          </p>
+          {step > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setStep(0);
+              }}
+              className="text-[11px] text-muted-foreground active:text-foreground"
+            >
+              重来
+            </button>
+          )}
+        </div>
+
+        <p className="mt-2 rounded-md bg-muted/40 p-3 font-serif text-[15px] leading-relaxed">
+          {built && `${built} `}
+          <span className="font-semibold text-primary">{current}</span>
+        </p>
+
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              speech.speak(built ? `${built} ${current}` : current);
+            }}
+            disabled={!speech.supported}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition-colors active:bg-primary/20 disabled:opacity-50"
+          >
+            <Volume2 className="size-3.5" />
+            跟读这一段
+          </button>
+          {!done ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setStep((s) => Math.min(s + 1, chunks.length - 1));
+              }}
+              className="flex-1 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-transform active:scale-[0.98]"
+            >
+              接下一句 →
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                speech.speak(data.q);
+              }}
+              disabled={!speech.supported}
+              className="flex-1 rounded-md bg-success px-3 py-2 text-xs font-semibold text-success-foreground transition-transform active:scale-[0.98] disabled:opacity-50"
+            >
+              整句跟读 ✓
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 长句拆读区：本课最多 3 句候选，标签切换，每句独立一套滚雪球跟读进度 */
+function LongSentenceSection({
+  sentences,
+  speech,
+}: {
+  sentences: LongSentence[];
+  speech: Speech;
+}) {
+  const [active, setActive] = useState(0);
+  useEffect(() => setActive(0), [sentences]);
+
+  if (sentences.length === 0) return null;
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <BlockLabel icon={MessagesSquare}>长句拆读</BlockLabel>
+        {sentences.length > 1 && (
+          <div className="mb-2 flex gap-1">
+            {sentences.map((_, n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActive(n);
+                }}
+                className={cn(
+                  "flex size-6 items-center justify-center rounded-md text-[11px] font-semibold transition-colors",
+                  active === n
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground active:bg-accent",
+                )}
+              >
+                {n + 1}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <LongSentenceDrill key={active} data={sentences[active]} speech={speech} />
+    </div>
+  );
+}
+
+/** 课末小结：默认折叠，展开后回顾本课语法/句型讲解、长句拆读、全部词汇（带发音+释义），内容均为 AI 生成 */
+function LessonSummary({
+  lesson,
+  gloss,
+  grammar,
+  longSentences,
+  speech,
+}: {
+  lesson: Lesson;
+  /** 词条 → 中文释义 */
+  gloss: Record<string, string>;
+  /** AI 生成的本课语法/句型讲解要点 */
+  grammar: string[];
+  /** AI 生成的长句拆读，最多 3 句，覆盖不到时为空数组 */
+  longSentences: LongSentence[];
+  speech: Speech;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const words = useMemo(
+    () => [...new Set(lesson.groups.flatMap((g) => g.words))],
+    [lesson],
+  );
+
+  if (grammar.length === 0 && longSentences.length === 0 && words.length === 0) return null;
+
+  return (
+    <section className="rounded-xl border border-primary/25 bg-primary/[0.04]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 p-4 text-left"
+      >
+        <Sparkles className="size-4 shrink-0 text-primary" />
+        <span className="flex-1 text-sm font-semibold">本课小结</span>
+        <ChevronDown
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+
+      {open && (
+        <div className="space-y-5 border-t border-primary/15 px-4 pb-5 pt-4">
+          {grammar.length > 0 && (
+            <div>
+              <BlockLabel icon={GraduationCap}>语法与句型讲解</BlockLabel>
+              <ol className="space-y-2">
+                {grammar.map((point, n) => (
+                  <li
+                    key={n}
+                    className="flex gap-2.5 rounded-md border border-border bg-muted/50 p-3 text-[13px] leading-relaxed text-muted-foreground"
+                  >
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold tabular-nums text-primary">
+                      {n + 1}
+                    </span>
+                    <span>{point}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          <LongSentenceSection sentences={longSentences} speech={speech} />
+
+          {words.length > 0 && (
+            <div>
+              <BlockLabel icon={BookOpen}>词汇 · {words.length}</BlockLabel>
+              <div className="flex flex-wrap gap-1.5">
+                {words.map((w, n) => (
+                  <WordChip
+                    key={`${w}-${n}`}
+                    word={w}
+                    meaning={gloss[w]}
+                    onSpeak={speech.supported ? speech.speak : undefined}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function LessonDrill({
   lesson,
   ipa,
+  gloss,
+  grammar,
+  longSentences,
   locale,
   next,
 }: {
   lesson: Lesson;
   /** 本课词条的英式音标，缺词条就是词典没收录 */
   ipa: Record<string, string>;
+  /** 本课词条的中文释义，缺词条就是词表没收录 */
+  gloss: Record<string, string>;
+  /** AI 生成的本课语法讲解要点 */
+  grammar: string[];
+  /** AI 生成的长句拆读，最多 3 句，覆盖不到时为空数组 */
+  longSentences: LongSentence[];
   locale: string;
   next: number | null;
 }) {
@@ -280,9 +638,12 @@ export function LessonDrill({
         {topBar}
         <main className="mx-auto max-w-lg space-y-8 px-5 py-6">
           {lesson.groups.map((g, gi) => (
-            <section key={gi}>
+            <section
+              key={gi}
+              className="rounded-xl border border-border/70 bg-card/40 p-4"
+            >
               {/* 组号：一课几十张卡，没有编号很难知道自己在哪 */}
-              <div className="mb-3 flex items-center gap-3">
+              <div className="mb-3.5 flex items-center gap-3">
                 <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
                   {String(gi + 1).padStart(2, "0")}
                 </span>
@@ -290,11 +651,16 @@ export function LessonDrill({
               </div>
 
               {g.words.length > 0 && (
-                <div className="mb-4">
+                <div className="mb-4 rounded-lg bg-primary/5 p-3">
                   <BlockLabel icon={BookOpen}>词汇 · {g.words.length}</BlockLabel>
                   <div className="flex flex-wrap gap-1.5">
                     {g.words.map((w, i) => (
-                      <WordChip key={`${w}-${i}`} word={w} ipa={ipa[w]} />
+                      <WordChip
+                        key={`${w}-${i}`}
+                        word={w}
+                        ipa={ipa[w]}
+                        onSpeak={speech.supported ? speech.speak : undefined}
+                      />
                     ))}
                   </div>
                 </div>
@@ -320,12 +686,34 @@ export function LessonDrill({
                         key={ei}
                         className="rounded-md border border-border bg-card p-3.5"
                       >
-                        <p className="font-serif text-[15px] font-medium leading-relaxed">
-                          {ex.q}
-                        </p>
-                        <p className="mt-1.5 font-serif text-[15px] leading-relaxed text-primary">
-                          {ex.a}
-                        </p>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-serif text-[15px] font-medium leading-relaxed">
+                              {ex.q}
+                            </p>
+                            <p className="mt-1.5 font-serif text-[15px] leading-relaxed text-primary">
+                              {ex.a}
+                            </p>
+                          </div>
+                          {speech.supported && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                speech.speak(`${ex.q} ${ex.a}`);
+                              }}
+                              aria-label="朗读这句"
+                              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground active:bg-muted"
+                            >
+                              <Volume2 className="size-4" />
+                            </button>
+                          )}
+                        </div>
+                        <SentenceTools
+                          q={ex.q}
+                          a={ex.a}
+                          meaning={LESSON_MEANINGS[`${lesson.lesson}:${gi}:${ei}`]}
+                        />
                       </li>
                     ))}
                   </ul>
@@ -333,6 +721,25 @@ export function LessonDrill({
               )}
             </section>
           ))}
+
+          <LessonSummary
+            lesson={lesson}
+            gloss={gloss}
+            grammar={grammar}
+            longSentences={longSentences}
+            speech={speech}
+          />
+
+          <button
+            type="button"
+            onClick={() => markDone(lesson.lesson)}
+            disabled={isDone}
+            className="flex w-full items-center justify-center gap-2 rounded-md bg-success p-4 text-sm font-semibold text-success-foreground transition-transform active:scale-[0.98] disabled:opacity-60"
+          >
+            <Check className="size-4" />
+            {isDone ? "已完成" : "本课学完了"}
+          </button>
+
           {next && (
             <Link
               href={`/${locale}/study/${next}`}
@@ -374,7 +781,13 @@ export function LessonDrill({
               </p>
               <div className="flex flex-wrap justify-center gap-2.5">
                 {card.words.map((w, n) => (
-                  <WordChip key={`${w}-${n}`} word={w} ipa={ipa[w]} size="lg" />
+                  <WordChip
+                    key={`${w}-${n}`}
+                    word={w}
+                    ipa={ipa[w]}
+                    size="lg"
+                    onSpeak={speech.supported ? speech.speak : undefined}
+                  />
                 ))}
               </div>
               {card.note && (

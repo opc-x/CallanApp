@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarCheck, Flame, Layers, RotateCcw, Star } from "lucide-react";
+import { CalendarCheck, Flame, Layers, Link2, Link2Off, Loader2, RotateCcw, Star } from "lucide-react";
 import type { LessonSummary } from "@/lib/callan";
 import { today, useProgress } from "@/lib/progress";
 import { cn } from "@/lib/utils";
@@ -60,8 +60,93 @@ function Stat({
   );
 }
 
+function SyncSettings({
+  syncCode,
+  syncStatus,
+  connectSync,
+  disconnectSync,
+}: {
+  syncCode: string | null;
+  syncStatus: "off" | "syncing" | "synced" | "error";
+  connectSync: (code: string) => Promise<void>;
+  disconnectSync: () => void;
+}) {
+  const [input, setInput] = useState("");
+  const [error, setError] = useState(false);
+
+  if (syncCode) {
+    return (
+      <section className="mb-4 rounded-lg border border-border bg-card p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-sm font-semibold">
+            <Link2 className="size-4 text-success" />
+            多设备同步已连接
+          </div>
+          <button
+            type="button"
+            onClick={disconnectSync}
+            className="flex items-center gap-1 text-xs text-muted-foreground active:opacity-60"
+          >
+            <Link2Off className="size-3.5" />
+            断开
+          </button>
+        </div>
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          {syncStatus === "syncing" && (
+            <span className="inline-flex items-center gap-1">
+              <Loader2 className="size-3 animate-spin" />
+              同步中…
+            </span>
+          )}
+          {syncStatus === "synced" && "已同步"}
+          {syncStatus === "error" && "同步失败，稍后自动重试"}
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mb-4 rounded-lg border border-border bg-card p-5">
+      <h2 className="text-sm font-semibold">多设备同步</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        在这台设备和其它设备输入同一个同步码，就能共用一份进度。同步码在服务端的
+        <code className="mx-1 rounded bg-muted px-1 py-0.5">SYNC_CODE</code>
+        环境变量里设置。
+      </p>
+      <form
+        className="mt-3 flex gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setError(false);
+          try {
+            await connectSync(input.trim());
+          } catch {
+            setError(true);
+          }
+        }}
+      >
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="输入同步码"
+          className="h-9 flex-1 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+        />
+        <button
+          type="submit"
+          disabled={!input.trim()}
+          className="h-9 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+        >
+          连接
+        </button>
+      </form>
+      {error && <p className="mt-2 text-xs text-destructive">同步码不对，或者服务端没配置</p>}
+    </section>
+  );
+}
+
 export function StatsBoard({ index }: { index: LessonSummary[] }) {
-  const { progress, ready, streak, reset } = useProgress();
+  const { progress, ready, streak, reset, syncCode, syncStatus, connectSync, disconnectSync } =
+    useProgress();
   const [confirming, setConfirming] = useState(false);
 
   const doneSet = useMemo(() => new Set(progress.done), [progress.done]);
@@ -185,6 +270,13 @@ export function StatsBoard({ index }: { index: LessonSummary[] }) {
         </div>
       </section>
 
+      <SyncSettings
+        syncCode={syncCode}
+        syncStatus={syncStatus}
+        connectSync={connectSync}
+        disconnectSync={disconnectSync}
+      />
+
       {/* 各 Stage 进度 */}
       <section className="mb-4 rounded-lg border border-border bg-card p-5">
         <h2 className="mb-4 text-sm font-semibold">各 Stage 进度</h2>
@@ -246,7 +338,7 @@ export function StatsBoard({ index }: { index: LessonSummary[] }) {
           </button>
         )}
         <p className="mt-3 text-center text-[11px] text-muted-foreground">
-          进度保存在这台设备的浏览器里
+          {syncCode ? "进度保存在这台设备，并同步到其它已连接的设备" : "进度保存在这台设备的浏览器里"}
         </p>
       </div>
     </main>

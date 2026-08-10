@@ -4,7 +4,3 @@ export function isDevToolsEnabled(): boolean {
     process.env.NEXT_PUBLIC_DEV_TOOLS === "true"
   );
 }
-
-export function isDevBypassAuth(): boolean {
-  return process.env.NEXT_PUBLIC_DEV_BYPASS_AUTH === "true";
-}

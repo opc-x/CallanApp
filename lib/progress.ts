@@ -1,32 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  EMPTY_PROGRESS,
+  mergeProgress,
+  type Progress,
+  type Saved,
+} from "@/lib/progress-shared";
+import {
+  getSyncCode,
+  pullProgress,
+  putProgress,
+  setSyncCode as persistSyncCode,
+} from "@/lib/sync";
+
+export type { Progress, Saved };
 
 const KEY = "callan.progress.v2";
-
-/** 收藏的例句自带内容，生词页就不必把整套课程数据送到客户端 */
-export type Saved = {
-  /** `${课号}:${组号}:${例句号}` */
-  id: string;
-  lesson: number;
-  words: string[];
-  q: string;
-  a: string;
-};
-
-export type Progress = {
-  /** 已完成的课号 */
-  done: number[];
-  /** 最近打开的课号 */
-  last: number | null;
-  /** 每课刷到第几张卡，用于断点续刷 */
-  pos: Record<string, number>;
-  saved: Saved[];
-  /** 有学习记录的日期 YYYY-MM-DD，用于连续天数 */
-  days: string[];
-};
-
-const EMPTY: Progress = { done: [], last: null, pos: {}, saved: [], days: [] };
+const PUSH_DEBOUNCE_MS = 2000;
 
 export function today(): string {
   const d = new Date();
@@ -59,10 +50,10 @@ export function streakOf(days: string[]): number {
 }
 
 function read(): Progress {
-  if (typeof window === "undefined") return EMPTY;
+  if (typeof window === "undefined") return EMPTY_PROGRESS;
   try {
     const raw = window.localStorage.getItem(KEY);
-    if (!raw) return EMPTY;
+    if (!raw) return EMPTY_PROGRESS;
     const p = JSON.parse(raw) as Partial<Progress>;
     return {
       done: Array.isArray(p.done) ? p.done.filter(Number.isInteger) : [],
@@ -72,7 +63,7 @@ function read(): Progress {
       days: Array.isArray(p.days) ? p.days : [],
     };
   } catch {
-    return EMPTY;
+    return EMPTY_PROGRESS;
   }
 }
 
@@ -84,23 +75,95 @@ function write(next: Progress) {
   }
 }
 
+export type SyncStatus = "off" | "syncing" | "synced" | "error";
+
 export function useProgress() {
   // 首屏用空值渲染，挂载后再补上，避免服务端/客户端不一致
-  const [progress, setProgress] = useState<Progress>(EMPTY);
+  const [progress, setProgress] = useState<Progress>(EMPTY_PROGRESS);
   const [ready, setReady] = useState(false);
+  const [syncCode, setSyncCodeState] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("off");
+  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 排队等推的操作本身（不是结果）——推的时候现拉服务端最新数据重放一遍，
+  // "取消完成"/"取消收藏"/"清空" 这类会变少的操作才不会被服务端的并集合并粘回来。
+  const pendingOps = useRef<Array<(p: Progress) => Progress>>([]);
 
   useEffect(() => {
     setProgress(read());
+    setSyncCodeState(getSyncCode());
     setReady(true);
   }, []);
 
-  const update = useCallback((fn: (p: Progress) => Progress) => {
-    setProgress((prev) => {
-      const next = fn(prev);
-      write(next);
-      return next;
-    });
+  const schedulePush = useCallback((code: string) => {
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(async () => {
+      const ops = pendingOps.current;
+      if (ops.length === 0) return;
+      pendingOps.current = [];
+      setSyncStatus("syncing");
+      try {
+        const server = await pullProgress(code);
+        const result = ops.reduce((p, fn) => fn(p), server);
+        await putProgress(code, result);
+        setProgress((prev) => {
+          const merged = mergeProgress(prev, result);
+          write(merged);
+          return merged;
+        });
+        setSyncStatus("synced");
+      } catch {
+        pendingOps.current.unshift(...ops); // 失败了留着，下次成功的同步会重放
+        setSyncStatus("error");
+      }
+    }, PUSH_DEBOUNCE_MS);
   }, []);
+
+  const update = useCallback(
+    (fn: (p: Progress) => Progress) => {
+      setProgress((prev) => {
+        const next = fn(prev);
+        write(next);
+        return next;
+      });
+      if (syncCode) {
+        pendingOps.current.push(fn);
+        schedulePush(syncCode);
+      }
+    },
+    [syncCode, schedulePush],
+  );
+
+  // 首次挂载 / 换了同步码：拉服务端数据，跟本地合并，立刻双向写回，别的设备马上能看见
+  const connectSync = useCallback(async (code: string) => {
+    setSyncStatus("syncing");
+    try {
+      const server = await pullProgress(code);
+      // 直接读 localStorage 而不是走 setProgress 的 updater——React 不保证
+      // updater 会在下一行同步跑完，用它的副作用去拿 merged 会拿到还没更新的旧值。
+      const merged = mergeProgress(read(), server);
+      write(merged);
+      setProgress(merged);
+      await putProgress(code, merged);
+      persistSyncCode(code);
+      setSyncCodeState(code);
+      setSyncStatus("synced");
+    } catch {
+      setSyncStatus("error");
+      throw new Error("sync connect failed");
+    }
+  }, []);
+
+  const disconnectSync = useCallback(() => {
+    persistSyncCode(null);
+    setSyncCodeState(null);
+    setSyncStatus("off");
+  }, []);
+
+  useEffect(() => {
+    if (ready && syncCode) connectSync(syncCode).catch(() => {});
+    // 只在挂载后、拿到本地存的同步码时跑一次，不依赖 connectSync identity
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   const markDone = useCallback(
     (lesson: number) =>
@@ -152,7 +215,7 @@ export function useProgress() {
     [update],
   );
 
-  const reset = useCallback(() => update(() => EMPTY), [update]);
+  const reset = useCallback(() => update(() => EMPTY_PROGRESS), [update]);
 
   const streak = useMemo(() => streakOf(progress.days), [progress.days]);
 
@@ -166,5 +229,9 @@ export function useProgress() {
     setPos,
     toggleSaved,
     reset,
+    syncCode,
+    syncStatus,
+    connectSync,
+    disconnectSync,
   };
 }

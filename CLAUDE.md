@@ -19,9 +19,9 @@ uvx --with eng-to-ipa python scripts/build_ipa.py data/callan
 ## Stack
 
 - Next.js App Router + `next-intl` (locale `zh`)
-- Supabase (`lib/supabase/server.ts`, `client.ts`, `admin.ts`)
+- Neon Postgres + Drizzle ORM (`lib/db/`、`drizzle/`)
 - Tailwind + shadcn `Button`
-- `proxy.ts` — intl + auth（`DEV_BYPASS_AUTH` 可跳过）
+- `proxy.ts` — intl 路由
 
 ## 课时数据
 
@@ -58,7 +58,7 @@ marry/merry）靠脚本里的小词表兜底，词典本身标错的词写在 `_
 
 ## Env
 
-复制 `.env.example` → `.env.local`。Supabase 控制台项目名建议 **callanApp**。
+复制 `.env.example` → `.env.local`，填入 Neon 项目 **callanApp** 的 `DATABASE_URL`。
 
 ## Routes
 
