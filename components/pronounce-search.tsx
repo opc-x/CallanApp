@@ -10,6 +10,9 @@ type Status = "idle" | "loading" | "error" | "done";
 // 100 = 视频被删/私有，101/150 = 上传者禁止嵌入播放——这三种都得自动换下一条，
 // 别的错误码（2/5，参数或播放器本身的问题）先原样展示，重试没用。
 const UNPLAYABLE_ERROR_CODES = new Set([100, 101, 150]);
+// 连续几个都报错、一个都没真正播成功，大概率不是"每个视频都被禁嵌入"这么巧，
+// 是这个浏览器/环境（比如某些 App 内置浏览器）压根放不了 YouTube 内嵌播放器。
+const CIRCUIT_BREAKER_THRESHOLD = 3;
 
 type YTPlayer = { destroy: () => void };
 type YTPlayerCtor = new (
@@ -18,6 +21,7 @@ type YTPlayerCtor = new (
     videoId: string;
     playerVars?: Record<string, unknown>;
     events?: {
+      onReady?: () => void;
       onError?: (e: { data: number }) => void;
     };
   },
@@ -80,8 +84,10 @@ export function PronounceSearch() {
   const [translations, setTranslations] = useState<Record<number, string>>({});
   const [translating, setTranslating] = useState<number | null>(null);
   const [blocked, setBlocked] = useState<Set<string>>(new Set());
+  const [embedUnsupported, setEmbedUnsupported] = useState(false);
   const playerHostRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
+  const consecutiveErrors = useRef(0);
 
   function hitKey(hit: PronounceHit) {
     return `${hit.videoId}-${hit.start}`;
@@ -89,14 +95,17 @@ export function PronounceSearch() {
 
   // 当前视频被 YouTube 判定禁止嵌入时，标灰并自动切到列表里下一条没试过的候选
   function skipUnplayable(hit: PronounceHit, list: PronounceHit[]) {
-    setBlocked((prev) => new Set(prev).add(hitKey(hit)));
-    const i = list.findIndex((h) => hitKey(h) === hitKey(hit));
-    const next = list.slice(i + 1).find((h) => !blocked.has(hitKey(h)));
-    setActive(next ?? null);
+    setBlocked((prev) => {
+      const nextBlocked = new Set(prev).add(hitKey(hit));
+      const i = list.findIndex((h) => hitKey(h) === hitKey(hit));
+      const next = list.slice(i + 1).find((h) => !nextBlocked.has(hitKey(h)));
+      setActive(next ?? null);
+      return nextBlocked;
+    });
   }
 
   useEffect(() => {
-    if (!active || !playerHostRef.current) return;
+    if (!active || !playerHostRef.current || embedUnsupported) return;
     let cancelled = false;
     loadYouTubeApi().then(() => {
       if (cancelled || !playerHostRef.current) return;
@@ -105,8 +114,18 @@ export function PronounceSearch() {
         videoId: active.videoId,
         playerVars: { autoplay: 1, start: precise ? active.start : 0 },
         events: {
+          onReady: () => {
+            consecutiveErrors.current = 0; // 真播成功了，说明这个环境能放，之前的错误不算系统性问题
+          },
           onError: (e) => {
-            if (UNPLAYABLE_ERROR_CODES.has(e.data)) skipUnplayable(active, hits);
+            if (!UNPLAYABLE_ERROR_CODES.has(e.data)) return;
+            consecutiveErrors.current += 1;
+            if (consecutiveErrors.current >= CIRCUIT_BREAKER_THRESHOLD) {
+              setEmbedUnsupported(true);
+              setActive(null);
+              return;
+            }
+            skipUnplayable(active, hits);
           },
         },
       });
@@ -115,7 +134,7 @@ export function PronounceSearch() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active?.videoId, active?.start]);
+  }, [active?.videoId, active?.start, embedUnsupported]);
 
   async function search(q: string) {
     const clean = q.trim();
@@ -125,6 +144,8 @@ export function PronounceSearch() {
     setActive(null);
     setTranslations({});
     setBlocked(new Set());
+    setEmbedUnsupported(false);
+    consecutiveErrors.current = 0;
     try {
       const res = await fetch(`/api/v1/pronounce?word=${encodeURIComponent(clean)}`);
       const data = await res.json();
@@ -219,7 +240,14 @@ export function PronounceSearch() {
         </div>
       )}
 
-      {active && (
+      {embedUnsupported && (
+        <div className="mt-6 rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground">
+          这个浏览器/环境放不了 YouTube 内嵌播放器（常见于 App 内置浏览器），下面的视频点开会直接跳
+          YouTube 播放。
+        </div>
+      )}
+
+      {active && !embedUnsupported && (
         <div className="mt-6 aspect-video overflow-hidden rounded-2xl border border-border bg-black">
           <div ref={playerHostRef} className="size-full" />
         </div>
@@ -228,7 +256,7 @@ export function PronounceSearch() {
       {hits.length > 0 && (
         <ul className="mt-4 space-y-2 pb-8">
           {hits.map((hit, i) => {
-            const isBlocked = blocked.has(hitKey(hit));
+            const isBlocked = embedUnsupported || blocked.has(hitKey(hit));
             const body = (
               <>
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -236,7 +264,8 @@ export function PronounceSearch() {
                   <span className="truncate">{hit.channel || hit.title}</span>
                   {isBlocked && (
                     <span className="flex shrink-0 items-center gap-1">
-                      · 无法嵌入，去 YouTube 看 <ExternalLink className="size-3" />
+                      · {embedUnsupported ? "去 YouTube 看" : "无法嵌入，去 YouTube 看"}{" "}
+                      <ExternalLink className="size-3" />
                     </span>
                   )}
                 </div>
