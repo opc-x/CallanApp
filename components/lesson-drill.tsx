@@ -11,6 +11,7 @@ import {
   GraduationCap,
   Info,
   Languages,
+  Lightbulb,
   List,
   MessagesSquare,
   RotateCcw,
@@ -22,6 +23,8 @@ import {
 import type { Lesson, LongSentence } from "@/lib/callan";
 import { analyzePattern } from "@/lib/grammar";
 import meaningsData from "@/data/callan/meanings.json";
+import scenarioData from "@/data/callan/scenario.json";
+import filledData from "@/data/callan/filled.json";
 import { useProgress, type Saved } from "@/lib/progress";
 import { useSpeech } from "@/lib/speech";
 import { cn } from "@/lib/utils";
@@ -31,6 +34,23 @@ type Speech = ReturnType<typeof useSpeech>;
 type Card =
   | { kind: "words"; words: string[]; note: string }
   | { kind: "qa"; id: string; words: string[]; q: string; a: string };
+
+/** 课本原文里"..."仿说填空处的具体答案，由 scripts/build_filled.py 离线生成 */
+const FILLED = filledData as Record<string, { q: string; a: string }>;
+
+/** 把课本原文里的仿说填空换成 AI 补全的具体答案；没有生成过的条目保持原文不动 */
+function applyFilled(lesson: Lesson): Lesson {
+  return {
+    ...lesson,
+    groups: lesson.groups.map((g, gi) => ({
+      ...g,
+      examples: g.examples.map((ex, ei) => {
+        const filled = FILLED[`${lesson.lesson}:${gi}:${ei}`];
+        return filled ? { q: filled.q, a: filled.a } : ex;
+      }),
+    })),
+  };
+}
 
 function buildCards(lesson: Lesson): Card[] {
   const cards: Card[] = [];
@@ -147,17 +167,34 @@ function WordChip({
 /** 通览页问答句的折叠语法标签：规则匹配句型/时态，无标签时不渲染 */
 type StoredMeaning = { q: string; a: string };
 const LESSON_MEANINGS = meaningsData as Record<string, StoredMeaning>;
+/** 场景解析：这句典型用在什么情境、为什么这么问，由 scripts/build_scenario.py 离线生成 */
+const LESSON_SCENARIOS = scenarioData as Record<string, string>;
 
-/** 教材原文保持不动；中文句意来自离线生成的数据，不产生运行费用。 */
-function SentenceTools({ q, a, meaning }: { q: string; a: string; meaning?: StoredMeaning }) {
+/** 教材原文保持不动；中文句意与场景解析都来自离线生成的数据，不产生运行费用。 */
+function SentenceTools({
+  q,
+  a,
+  meaning,
+  scenario,
+}: {
+  q: string;
+  a: string;
+  meaning?: StoredMeaning;
+  scenario?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [meaningOpen, setMeaningOpen] = useState(false);
+  const [scenarioOpen, setScenarioOpen] = useState(false);
   const tags = useMemo(() => analyzePattern(q, a), [q, a]);
   const hasTextbookBlank = /(?:\.{3}|…)/.test(`${q} ${a}`);
 
   const toggleMeaning = (e: React.MouseEvent) => {
     e.stopPropagation();
     setMeaningOpen((value) => !value);
+  };
+  const toggleScenario = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setScenarioOpen((value) => !value);
   };
 
   return (
@@ -186,6 +223,15 @@ function SentenceTools({ q, a, meaning }: { q: string; a: string; meaning?: Stor
           句意
           <ChevronDown className={cn("size-3 transition-transform", meaningOpen && "rotate-180")} />
         </button>
+        <button
+          type="button"
+          onClick={toggleScenario}
+          className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground active:text-foreground"
+        >
+          <Lightbulb className="size-3.5" />
+          场景解析
+          <ChevronDown className={cn("size-3 transition-transform", scenarioOpen && "rotate-180")} />
+        </button>
         {hasTextbookBlank && (
           <span className="text-[10px] text-muted-foreground/70" title="教材原文故意留空，需按本人情况补全">
           </span>
@@ -213,6 +259,11 @@ function SentenceTools({ q, a, meaning }: { q: string; a: string; meaning?: Stor
           ) : (
             "本句句意正在校订中。"
           )}
+        </div>
+      )}
+      {scenarioOpen && (
+        <div className="mt-2 rounded-md bg-muted/60 p-2.5 text-[12px] leading-relaxed text-muted-foreground">
+          {scenario ?? "场景解析正在生成中。"}
         </div>
       )}
     </div>
@@ -467,7 +518,7 @@ function LessonSummary({
 }
 
 export function LessonDrill({
-  lesson,
+  lesson: rawLesson,
   ipa,
   gloss,
   grammar,
@@ -487,6 +538,7 @@ export function LessonDrill({
   locale: string;
   next: number | null;
 }) {
+  const lesson = useMemo(() => applyFilled(rawLesson), [rawLesson]);
   const cards = useMemo(() => buildCards(lesson), [lesson]);
   const { progress, ready, markDone, touch, setPos, toggleSaved } = useProgress();
   const speech = useSpeech();
@@ -713,6 +765,7 @@ export function LessonDrill({
                           q={ex.q}
                           a={ex.a}
                           meaning={LESSON_MEANINGS[`${lesson.lesson}:${gi}:${ei}`]}
+                          scenario={LESSON_SCENARIOS[`${lesson.lesson}:${gi}:${ei}`]}
                         />
                       </li>
                     ))}
