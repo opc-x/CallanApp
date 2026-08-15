@@ -61,6 +61,7 @@ function read(): Progress {
       pos: p.pos && typeof p.pos === "object" ? p.pos : {},
       saved: Array.isArray(p.saved) ? p.saved : [],
       days: Array.isArray(p.days) ? p.days : [],
+      savedWords: Array.isArray(p.savedWords) ? p.savedWords : [],
     };
   } catch {
     return EMPTY_PROGRESS;
@@ -215,6 +216,21 @@ export function useProgress() {
     [update],
   );
 
+  /** 收藏单词：小写归一化，同一个词无论出现几次都是同一条 */
+  const toggleSavedWord = useCallback(
+    (word: string) =>
+      update((p) => {
+        const key = word.trim().toLowerCase();
+        return {
+          ...p,
+          savedWords: p.savedWords.includes(key)
+            ? p.savedWords.filter((w) => w !== key)
+            : [...p.savedWords, key],
+        };
+      }),
+    [update],
+  );
+
   const reset = useCallback(() => update(() => EMPTY_PROGRESS), [update]);
 
   const streak = useMemo(() => streakOf(progress.days), [progress.days]);
@@ -228,6 +244,7 @@ export function useProgress() {
     touch,
     setPos,
     toggleSaved,
+    toggleSavedWord,
     reset,
     syncCode,
     syncStatus,

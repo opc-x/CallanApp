@@ -16,6 +16,7 @@ export const progress = pgTable("progress", {
   pos: jsonb("pos").notNull().default({}),
   saved: jsonb("saved").notNull().default([]),
   days: jsonb("days").notNull().default([]),
+  savedWords: jsonb("saved_words").notNull().default([]),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

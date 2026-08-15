@@ -1,0 +1,1 @@
+ALTER TABLE "progress" ADD COLUMN "saved_words" jsonb DEFAULT '[]'::jsonb NOT NULL;

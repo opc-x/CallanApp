@@ -99,6 +99,8 @@ function WordChip({
   meaning,
   size = "sm",
   onSpeak,
+  favorited,
+  onToggleFavorite,
 }: {
   word: string;
   ipa?: string;
@@ -106,61 +108,88 @@ function WordChip({
   meaning?: string;
   size?: "sm" | "lg";
   onSpeak?: (word: string) => void;
+  favorited?: boolean;
+  onToggleFavorite?: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onSpeak?.(word);
-      }}
-      disabled={!onSpeak}
-      className={cn(
-        "relative inline-flex flex-col items-center rounded-md bg-primary/10 transition-colors",
-        onSpeak && "active:bg-primary/20",
-        size === "lg" ? "px-4 py-2" : "px-2.5 py-1.5",
-        onSpeak && (size === "lg" ? "pr-7" : "pr-5"),
-      )}
-    >
-      {onSpeak && (
-        <Volume2
-          className={cn(
-            "absolute right-1 top-1 text-primary/45",
-            size === "lg" ? "size-3.5" : "size-2.5",
-          )}
-        />
-      )}
-      <span
+    <div className="relative inline-flex flex-col items-center rounded-md bg-primary/10 transition-colors">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSpeak?.(word);
+        }}
+        disabled={!onSpeak}
         className={cn(
-          "font-serif font-semibold text-primary",
-          size === "lg" ? "text-xl" : "text-sm",
+          "flex flex-col items-center rounded-md transition-colors",
+          onSpeak && "active:bg-primary/20",
+          size === "lg" ? "px-4 py-2" : "px-2.5 py-1.5",
+          onSpeak && (size === "lg" ? "pr-7" : "pr-5"),
+          onToggleFavorite && (size === "lg" ? "pl-6" : "pl-4"),
         )}
       >
-        {word}
-      </span>
-      {meaning ? (
+        {onSpeak && (
+          <Volume2
+            className={cn(
+              "absolute right-1 top-1 text-primary/45",
+              size === "lg" ? "size-3.5" : "size-2.5",
+            )}
+          />
+        )}
         <span
           className={cn(
-            "mt-0.5 leading-tight text-muted-foreground",
-            size === "lg" ? "text-xs" : "text-[10px]",
+            "font-serif font-semibold text-primary",
+            size === "lg" ? "text-xl" : "text-sm",
           )}
         >
-          {meaning}
+          {word}
         </span>
-      ) : (
-        ipa && (
-          // 不用 font-mono：等宽字体缺 IPA 字形，ˈ 会掉成 '、ː 会掉成 :
+        {meaning ? (
           <span
             className={cn(
-              "mt-0.5 leading-tight text-primary/70",
+              "mt-0.5 leading-tight text-muted-foreground",
               size === "lg" ? "text-xs" : "text-[10px]",
             )}
           >
-            /{ipa}/
+            {meaning}
           </span>
-        )
+        ) : (
+          ipa && (
+            // 不用 font-mono：等宽字体缺 IPA 字形，ˈ 会掉成 '、ː 会掉成 :
+            <span
+              className={cn(
+                "mt-0.5 leading-tight text-primary/70",
+                size === "lg" ? "text-xs" : "text-[10px]",
+              )}
+            >
+              /{ipa}/
+            </span>
+          )
+        )}
+      </button>
+
+      {onToggleFavorite && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite();
+          }}
+          aria-label={favorited ? "取消收藏这个词" : "收藏这个词"}
+          className={cn(
+            "absolute left-1 top-1 text-primary/45 transition-colors active:text-flame",
+            favorited && "text-flame",
+          )}
+        >
+          <Star
+            className={cn(
+              size === "lg" ? "size-3.5" : "size-2.5",
+              favorited && "fill-current",
+            )}
+          />
+        </button>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -437,6 +466,8 @@ function LessonSummary({
   grammar,
   longSentences,
   speech,
+  isFavorited,
+  onToggleFavorite,
 }: {
   lesson: Lesson;
   /** 词条 → 中文释义 */
@@ -446,6 +477,8 @@ function LessonSummary({
   /** AI 生成的长句拆读，最多 3 句，覆盖不到时为空数组 */
   longSentences: LongSentence[];
   speech: Speech;
+  isFavorited: (word: string) => boolean;
+  onToggleFavorite: (word: string) => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -506,6 +539,8 @@ function LessonSummary({
                     word={w}
                     meaning={gloss[w]}
                     onSpeak={speech.supported ? speech.speak : undefined}
+                    favorited={isFavorited(w)}
+                    onToggleFavorite={() => onToggleFavorite(w)}
                   />
                 ))}
               </div>
@@ -540,7 +575,8 @@ export function LessonDrill({
 }) {
   const lesson = useMemo(() => applyFilled(rawLesson), [rawLesson]);
   const cards = useMemo(() => buildCards(lesson), [lesson]);
-  const { progress, ready, markDone, touch, setPos, toggleSaved } = useProgress();
+  const { progress, ready, markDone, touch, setPos, toggleSaved, toggleSavedWord } =
+    useProgress();
   const speech = useSpeech();
 
   const [i, setI] = useState(0);
@@ -548,6 +584,27 @@ export function LessonDrill({
   const [overview, setOverview] = useState(false);
   const [showRate, setShowRate] = useState(false);
   const bootRef = useRef(false);
+  const jumpGroupRef = useRef<string | null>(null);
+
+  // 从生词本点收藏词跳转过来：带着 ?g=组号，落地就切通览并滚到那一组
+  useEffect(() => {
+    const g = new URLSearchParams(window.location.search).get("g");
+    if (g == null) return;
+    jumpGroupRef.current = g;
+    setOverview(true);
+  }, []);
+
+  useEffect(() => {
+    if (!overview || jumpGroupRef.current == null) return;
+    const id = jumpGroupRef.current;
+    jumpGroupRef.current = null;
+    requestAnimationFrame(() => {
+      document.getElementById(`lesson-group-${id}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }, [overview]);
 
   // 挂载后恢复上次进度（服务端渲染时 localStorage 还读不到）
   useEffect(() => {
@@ -568,6 +625,14 @@ export function LessonDrill({
   const savedIds = useMemo(
     () => new Set(progress.saved.map((s) => s.id)),
     [progress.saved],
+  );
+  const savedWordsSet = useMemo(
+    () => new Set(progress.savedWords),
+    [progress.savedWords],
+  );
+  const isWordFavorited = useCallback(
+    (w: string) => savedWordsSet.has(w.trim().toLowerCase()),
+    [savedWordsSet],
   );
 
   const stopSpeech = speech.stop;
@@ -692,6 +757,7 @@ export function LessonDrill({
           {lesson.groups.map((g, gi) => (
             <section
               key={gi}
+              id={`lesson-group-${gi}`}
               className="rounded-xl border border-border/70 bg-card/40 p-4"
             >
               {/* 组号：一课几十张卡，没有编号很难知道自己在哪 */}
@@ -712,6 +778,8 @@ export function LessonDrill({
                         word={w}
                         ipa={ipa[w]}
                         onSpeak={speech.supported ? speech.speak : undefined}
+                        favorited={isWordFavorited(w)}
+                        onToggleFavorite={() => toggleSavedWord(w)}
                       />
                     ))}
                   </div>
@@ -781,6 +849,8 @@ export function LessonDrill({
             grammar={grammar}
             longSentences={longSentences}
             speech={speech}
+            isFavorited={isWordFavorited}
+            onToggleFavorite={toggleSavedWord}
           />
 
           <button
@@ -840,6 +910,8 @@ export function LessonDrill({
                     ipa={ipa[w]}
                     size="lg"
                     onSpeak={speech.supported ? speech.speak : undefined}
+                    favorited={isWordFavorited(w)}
+                    onToggleFavorite={() => toggleSavedWord(w)}
                   />
                 ))}
               </div>

@@ -18,6 +18,7 @@ function rowToProgress(row: typeof progress.$inferSelect): Progress {
     pos: (row.pos as Record<string, number>) ?? {},
     saved: (row.saved as Progress["saved"]) ?? [],
     days: (row.days as string[]) ?? [],
+    savedWords: (row.savedWords as string[]) ?? [],
   };
 }
 

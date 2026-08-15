@@ -1,11 +1,93 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { Eye, EyeOff, Shuffle, Star, Volume2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Eye, EyeOff, MapPin, Shuffle, Star, Volume2 } from "lucide-react";
 import { useProgress } from "@/lib/progress";
 import { useSpeech } from "@/lib/speech";
 import { cn } from "@/lib/utils";
+
+type WordLocation = { lesson: number; gi: number };
+
+/** 收藏的单词一栏：点词跳到它在教材里第一次出现的那一组 */
+function SavedWords({ locale }: { locale: string }) {
+  const { progress, ready, toggleSavedWord } = useProgress();
+  const speech = useSpeech();
+  const [locations, setLocations] = useState<Record<string, WordLocation | null>>({});
+
+  const words = progress.savedWords;
+
+  useEffect(() => {
+    const pending = words.filter((w) => !(w in locations));
+    if (pending.length === 0) return;
+    let cancelled = false;
+    Promise.all(
+      pending.map(async (w) => {
+        try {
+          const res = await fetch(`/api/v1/word-location?word=${encodeURIComponent(w)}`);
+          const loc: WordLocation | null = res.ok ? await res.json() : null;
+          return [w, loc] as const;
+        } catch {
+          return [w, null] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setLocations((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [words.join(",")]);
+
+  if (!ready || words.length === 0) return null;
+
+  return (
+    <section className="mb-6">
+      <h2 className="mb-2.5 text-sm font-semibold">收藏的单词 · {words.length}</h2>
+      <ul className="flex flex-wrap gap-2">
+        {words.map((w) => {
+          const loc = locations[w];
+          const href = loc ? `/${locale}/study/${loc.lesson}?g=${loc.gi}` : null;
+          return (
+            <li
+              key={w}
+              className="flex items-center gap-1 rounded-md border border-border bg-card py-1 pl-2.5 pr-1"
+            >
+              {href ? (
+                <Link href={href} className="flex items-center gap-1 text-sm font-medium">
+                  <MapPin className="size-3 text-muted-foreground" />
+                  {w}
+                </Link>
+              ) : (
+                <span className="text-sm font-medium">{w}</span>
+              )}
+              {speech.supported && (
+                <button
+                  type="button"
+                  onClick={() => speech.speak(w)}
+                  aria-label="朗读"
+                  className="rounded p-1 text-muted-foreground active:bg-muted"
+                >
+                  <Volume2 className="size-3.5" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => toggleSavedWord(w)}
+                aria-label="取消收藏"
+                className="rounded p-1 text-flame active:bg-muted"
+              >
+                <Star className="size-3.5 fill-current" />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
 
 export function SavedList({ locale }: { locale: string }) {
   const { progress, ready, toggleSaved } = useProgress();
@@ -38,7 +120,7 @@ export function SavedList({ locale }: { locale: string }) {
       return next;
     });
 
-  if (ready && items.length === 0) {
+  if (ready && items.length === 0 && progress.savedWords.length === 0) {
     return (
       <main className="mx-auto max-w-lg px-5 pt-12">
         <h1 className="text-[28px] font-bold tracking-tight">生词本</h1>
@@ -66,9 +148,11 @@ export function SavedList({ locale }: { locale: string }) {
       <header className="mb-5">
         <h1 className="text-[28px] font-bold tracking-tight">生词本</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {ready ? `${items.length} 条收藏` : " "}
+          {ready ? `${items.length} 条句子收藏 · ${progress.savedWords.length} 个单词收藏` : " "}
         </p>
       </header>
+
+      <SavedWords locale={locale} />
 
       <div className="mb-4 flex items-center gap-2">
         <button

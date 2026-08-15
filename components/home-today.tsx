@@ -52,14 +52,16 @@ export function HomeToday({
   locale: string;
   index: LessonSummary[];
 }) {
-  const { progress, ready, streak } = useProgress();
+  const { progress, ready } = useProgress();
 
   const doneSet = useMemo(() => new Set(progress.done), [progress.done]);
 
-  const nextUp = useMemo(
-    () => index.find((l) => !doneSet.has(l.lesson)) ?? index[index.length - 1],
-    [index, doneSet],
-  );
+  // 续刷：优先回到最近打开的那一课，没有才退回"第一个未完成"
+  const nextUp = useMemo(() => {
+    const last =
+      progress.last != null ? index.find((l) => l.lesson === progress.last) : undefined;
+    return last ?? index.find((l) => !doneSet.has(l.lesson)) ?? index[index.length - 1];
+  }, [index, doneSet, progress.last]);
 
   // 断点续刷：卡片总数 = 词组卡 + 例句卡
   const cardTotal = nextUp.groups + nextUp.examples;
@@ -101,7 +103,7 @@ export function HomeToday({
       >
         <div className="p-5">
           <p className="text-xs font-medium uppercase tracking-widest opacity-70">
-            {resumed ? "继续未完成" : "下一课"}
+            {resumed ? "继续未完成" : progress.last != null ? "继续上次" : "下一课"}
           </p>
           <div className="mt-2 flex items-end justify-between gap-4">
             <div className="min-w-0">
@@ -138,12 +140,15 @@ export function HomeToday({
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Flame
-              className={cn("size-3.5", streak > 0 ? "text-flame" : "opacity-50")}
+              className={cn(
+                "size-3.5",
+                progress.days.length > 0 ? "text-flame" : "opacity-50",
+              )}
             />
-            连续学习
+            累计学习
           </div>
           <p className="mt-2 text-2xl font-bold tabular-nums">
-            {ready ? streak : "–"}
+            {ready ? progress.days.length : "–"}
             <span className="ml-1 text-sm font-normal text-muted-foreground">天</span>
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">

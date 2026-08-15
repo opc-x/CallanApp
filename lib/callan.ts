@@ -128,6 +128,30 @@ export function getLesson(lesson: number): Lesson | null {
   return stage?.find((l) => l.lesson === lesson) ?? null;
 }
 
+/** 词 → 该词在教材里全局第一次出现的位置，懒构建一次后缓存 */
+let wordLocationCache: Map<string, { lesson: number; gi: number }> | null = null;
+
+function buildWordLocationIndex(): Map<string, { lesson: number; gi: number }> {
+  const map = new Map<string, { lesson: number; gi: number }>();
+  for (const stage of STAGES) {
+    for (const lesson of stage) {
+      lesson.groups.forEach((g, gi) => {
+        for (const w of g.words) {
+          const key = w.trim().toLowerCase();
+          if (!map.has(key)) map.set(key, { lesson: lesson.lesson, gi });
+        }
+      });
+    }
+  }
+  return map;
+}
+
+/** 查某个词在教材里第一次出现的位置（课号 + 组号），查不到返回 null */
+export function wordLocation(word: string): { lesson: number; gi: number } | null {
+  wordLocationCache ??= buildWordLocationIndex();
+  return wordLocationCache.get(word.trim().toLowerCase()) ?? null;
+}
+
 /** 课时按 Stage 分组，供目录页使用 */
 export function stageOutline() {
   const byStage = new Map<number, LessonSummary[]>();

@@ -21,9 +21,18 @@ export type Progress = {
   saved: Saved[];
   /** 有学习记录的日期 YYYY-MM-DD，用于连续天数 */
   days: string[];
+  /** 收藏的单词，小写归一化，教材里同一个词不管出现几次都是同一条收藏 */
+  savedWords: string[];
 };
 
-export const EMPTY_PROGRESS: Progress = { done: [], last: null, pos: {}, saved: [], days: [] };
+export const EMPTY_PROGRESS: Progress = {
+  done: [],
+  last: null,
+  pos: {},
+  saved: [],
+  days: [],
+  savedWords: [],
+};
 
 /**
  * 两台设备的进度合并成一份：数组取并集、每课进度取较大值，没有真的"最后写入胜出"，
@@ -42,12 +51,15 @@ export function mergeProgress(a: Progress, b: Progress): Progress {
 
   const days = [...new Set([...a.days, ...b.days])].sort();
 
+  const savedWords = [...new Set([...a.savedWords, ...b.savedWords])].sort();
+
   return {
     done,
     last: b.last ?? a.last,
     pos,
     saved: [...savedById.values()],
     days,
+    savedWords,
   };
 }
 
@@ -58,6 +70,7 @@ export function isValidProgress(v: unknown): v is Progress {
     Array.isArray(p.done) &&
     Array.isArray(p.saved) &&
     Array.isArray(p.days) &&
+    Array.isArray(p.savedWords) &&
     typeof p.pos === "object" &&
     p.pos !== null
   );
