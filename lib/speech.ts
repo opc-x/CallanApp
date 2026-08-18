@@ -1,9 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import audioManifest from "@/data/callan/audio-manifest.json";
 
 const RATE_KEY = "callan.speech.rate";
 const ON_KEY = "callan.speech.auto";
+
+/** 课本词/例句 → 预生成 mp3 文件名，由 scripts/build_audio.py 离线用
+ * edge-tts（en-GB-SoniaNeural）批量合成，音色比浏览器本地语音包稳定清晰得多。
+ * 查不到才退回浏览器 speechSynthesis。 */
+const AUDIO_MANIFEST = audioManifest as Record<string, string>;
 
 // 各平台语音库里常见的女声/高音质关键词——没有统一 API 能直接查性别，
 // 只能靠名字关键词猜（Google/Microsoft/Apple 的命名习惯都不一样）
@@ -51,6 +57,7 @@ export function useSpeech() {
   const [rate, setRateState] = useState(1);
   const [speaking, setSpeaking] = useState(false);
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -74,16 +81,13 @@ export function useSpeech() {
     return () => {
       window.speechSynthesis?.removeEventListener("voiceschanged", load);
       window.speechSynthesis?.cancel();
+      audioRef.current?.pause();
     };
   }, []);
 
-  const speak = useCallback(
-    (text: string) => {
+  const speakWithBrowser = useCallback(
+    (clean: string) => {
       if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-      // 课本里的 … 和 ~ 是占位/可选答案标记，念出来只会干扰
-      const clean = text.replace(/[…~]+/g, " ").replace(/\s+/g, " ").trim();
-      if (!clean) return;
-
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(clean);
       if (voiceRef.current) {
@@ -101,9 +105,40 @@ export function useSpeech() {
     [rate],
   );
 
+  const speak = useCallback(
+    (text: string) => {
+      if (typeof window === "undefined") return;
+      // 课本里的 … 和 ~ 是占位/可选答案标记，念出来只会干扰
+      const clean = text.replace(/[…~]+/g, " ").replace(/\s+/g, " ").trim();
+      if (!clean) return;
+
+      window.speechSynthesis?.cancel();
+      audioRef.current?.pause();
+
+      const filename = AUDIO_MANIFEST[clean];
+      if (filename) {
+        const audio = new Audio(`/audio/sentences/${filename}`);
+        audio.playbackRate = rate;
+        audioRef.current = audio;
+        audio.onplay = () => setSpeaking(true);
+        audio.onended = () => setSpeaking(false);
+        audio.onerror = () => {
+          setSpeaking(false);
+          speakWithBrowser(clean);
+        };
+        audio.play().catch(() => speakWithBrowser(clean));
+        return;
+      }
+
+      speakWithBrowser(clean);
+    },
+    [rate, speakWithBrowser],
+  );
+
   const stop = useCallback(() => {
     if (typeof window === "undefined") return;
     window.speechSynthesis?.cancel();
+    audioRef.current?.pause();
     setSpeaking(false);
   }, []);
 

@@ -24,3 +24,5 @@ __pycache__/
 # 机器本地的权限配置；launch.json 是共享的 dev 配置，照常入库
 .claude/settings.local.json
 .env*
+
+.playwright-mcp/
